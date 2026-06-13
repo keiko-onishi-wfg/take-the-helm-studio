@@ -1,0 +1,259 @@
+# Take The Helm Studio — 実装計画書
+> ブログ制作ワークスペース：素材 → 気づき → ブログ構成 を一気通貫で
+
+---
+
+## 🗺️ プロジェクト概要
+
+| 項目 | 内容 |
+|---|---|
+| **プロジェクト名** | take-the-helm-studio |
+| **GitHubリポジトリ** | `keiko-onishi-wfg/take-the-helm-studio`（新規作成） |
+| **Vercel URL** | `https://take-the-helm-studio.vercel.app`（予定） |
+| **データベース** | Neon（morning-focusと同じDBを共有） |
+| **技術スタック** | Next.js / TypeScript / Tailwind CSS / shadcn/ui |
+| **ターゲット読者** | Take The Helm 読者（40代以上の日本語話者女性） |
+
+---
+
+## 🎯 このツールが解決すること
+
+外出先（本・映画・旅・セミナー）で得た気づきが、頭の中で消えてしまう問題を解決する。
+
+```
+モバイルで音声入力
+    ↓
+PCダッシュボードに自動表示
+    ↓
+AIと深掘り対話（グリル）
+    ↓
+マインドマップで見える化
+    ↓
+日英バイリンガル・ブログ構成を生成
+```
+
+---
+
+## 📱 機能1：モバイル入力画面（/mobile または /input）
+
+### 入力フィールド
+| フィールド | 入力方法 | 選択肢 |
+|---|---|---|
+| カテゴリー | ドロップダウン | 本 / 映画 / 旅 / セミナー / その他 |
+| 概要・内容 | 音声入力 or テキスト | 自由記述 |
+| 気づき | 音声入力 or テキスト | 自由記述 |
+| アクション | 音声入力 or テキスト | 自由記述 |
+
+### 音声入力の仕組み
+- ブラウザ内蔵のWeb Speech API（マイクボタンを押して話すだけ）
+- 日本語・英語どちらでも認識
+- 話し終わると自動でテキストに変換
+
+---
+
+## 🖥️ 機能2：PCダッシュボード（/dashboard）
+
+### 4ペイン構成
+
+```
+┌─────────────────┬──────────────────────────────────────┐
+│                 │                                      │
+│  ① 素材リスト   │  ② AIグリル（深掘り対話）            │
+│                 │                                      │
+│  カテゴリー別   │  選択した素材について                 │
+│  フィルター付き │  Claudeと対話する                    │
+│                 │                                      │
+├─────────────────┼──────────────────────────────────────┤
+│                 │                                      │
+│  ③ マインドマップ│  ④ ブログ構成                        │
+│                 │                                      │
+│  対話から       │  日本語記事の骨格                    │
+│  自動生成       │  ＋英語サマリー                      │
+│                 │                                      │
+└─────────────────┴──────────────────────────────────────┘
+```
+
+### 各ペインの詳細
+
+**① 素材リスト**
+- モバイルから送られた素材が並ぶ
+- カテゴリーでフィルター
+- クリックすると②③④が連動
+
+**② AIグリル**
+- 選択した素材をベースにClaudeが質問を投げかける
+- 「Take The Helm」読者向けのトーンに設定済み
+- 対話履歴はセッション中保持
+
+**③ マインドマップ**
+- AIグリルの対話から自動でキーワード・つながりを抽出
+- ビジュアルで思考を整理
+- SVGで描画（ライブラリ：react-flow または d3）
+
+**④ ブログ構成**
+- 素材＋グリル内容から記事の骨格を自動生成
+- 出力形式：タイトル候補 / 導入 / H2×3〜4 / まとめ / CTA
+- 日本語メイン ＋ 英語サマリー（バイリンガル）
+- Squarespaceにコピペしやすい形式
+
+---
+
+## 🗄️ データベース設計（Neon）
+
+### 新規追加テーブル：`blog_materials`（素材）
+
+```sql
+CREATE TABLE blog_materials (
+  id          SERIAL PRIMARY KEY,
+  category    TEXT NOT NULL,        -- 本/映画/旅/セミナー/その他
+  title       TEXT,                 -- 素材のタイトル（本名・映画名など）
+  summary     TEXT,                 -- 概要・内容
+  insight     TEXT,                 -- 気づき
+  action      TEXT,                 -- アクション
+  created_at  TIMESTAMP DEFAULT NOW(),
+  updated_at  TIMESTAMP DEFAULT NOW()
+);
+```
+
+### 新規追加テーブル：`blog_drafts`（ブログ構成）
+
+```sql
+CREATE TABLE blog_drafts (
+  id              SERIAL PRIMARY KEY,
+  material_id     INTEGER REFERENCES blog_materials(id),
+  title_ja        TEXT,   -- 日本語タイトル候補
+  title_en        TEXT,   -- 英語タイトル候補
+  structure_ja    TEXT,   -- 日本語構成（JSON）
+  summary_en      TEXT,   -- 英語サマリー
+  status          TEXT DEFAULT 'draft',  -- draft/published
+  created_at      TIMESTAMP DEFAULT NOW()
+);
+```
+
+---
+
+## 🚀 実装フェーズ（8段階）
+
+### PoC 1：プロジェクト基盤構築
+**目標：** Next.jsプロジェクトを作成してVercelにデプロイ
+- [ ] GitHubに `take-the-helm-studio` リポジトリ作成
+- [ ] Next.js + TypeScript + Tailwind CSS + shadcn/ui セットアップ
+- [ ] Vercelと接続
+- [ ] 動作確認（Hello World表示）
+- 📌 **Gitコミット：** `init: project setup`
+
+### PoC 2：Neon DB接続
+**目標：** Morning FocusのNeonに接続して新テーブルを作成
+- [ ] `.env.local` にNeon接続文字列を追加（morning-focusと同じDB）
+- [ ] `blog_materials` テーブル作成
+- [ ] `blog_drafts` テーブル作成
+- [ ] 接続テスト
+- 📌 **Gitコミット：** `feat: neon db connection and schema`
+
+### PoC 3：モバイル入力画面
+**目標：** スマホから素材を入力・保存できる
+- [ ] `/input` ページ作成（モバイルファースト設計）
+- [ ] カテゴリードロップダウン
+- [ ] テキスト入力フィールド×3（概要・気づき・アクション）
+- [ ] Neonへの保存API（`POST /api/materials`）
+- 📌 **Gitコミット：** `feat: mobile input page`
+
+### PoC 4：音声入力機能
+**目標：** マイクボタンで話すとテキストになる
+- [ ] Web Speech API実装
+- [ ] 日本語・英語切り替え
+- [ ] 音声→テキスト変換の精度確認
+- 📌 **Gitコミット：** `feat: voice input with web speech api`
+
+### PoC 5：PCダッシュボード①素材リスト
+**目標：** 入力した素材がPCで見られる
+- [ ] `/dashboard` ページ作成（4ペインレイアウト）
+- [ ] 素材一覧取得API（`GET /api/materials`）
+- [ ] カテゴリーフィルター
+- [ ] 素材クリックで選択状態
+- 📌 **Gitコミット：** `feat: dashboard material list`
+
+### PoC 6：AIグリル（②ペイン）
+**目標：** 選択した素材についてClaudeと対話できる
+- [ ] Claude API接続
+- [ ] Take The Helm読者向けシステムプロンプト設定
+- [ ] チャット履歴管理（sessionStorage）
+- [ ] 対話UIコンポーネント
+- 📌 **Gitコミット：** `feat: ai grill chat`
+
+### PoC 7：マインドマップ（③ペイン）
+**目標：** 対話からマインドマップが自動生成される
+- [ ] react-flow または d3 導入
+- [ ] AIが対話からキーワード・構造を抽出
+- [ ] マインドマップ自動描画
+- [ ] 手動でノード追加・編集
+- 📌 **Gitコミット：** `feat: mindmap visualization`
+
+### PoC 8：ブログ構成生成（④ペイン）
+**目標：** 日英バイリンガルのブログ骨格が自動生成される
+- [ ] ブログ構成生成プロンプト（Take The Helmトーン）
+- [ ] 日本語構成出力（タイトル・H2・まとめ・CTA）
+- [ ] 英語サマリー出力
+- [ ] Neonへの保存（`blog_drafts`）
+- [ ] コピーボタン（Squarespace貼り付け用）
+- 📌 **Gitコミット：** `feat: bilingual blog structure generator`
+
+---
+
+## 🎨 デザイン方針
+
+- **カラー：** Take The Helmブランドに合わせた（深みのある落ち着いた色調）
+- **モバイル入力：** シンプル・大きなボタン・音声入力が主役
+- **PCダッシュボード：** Morning Focusと同じ雰囲気で統一感
+- **フォント：** 日本語が読みやすいもの
+
+---
+
+## 📁 フォルダ構成（予定）
+
+```
+take-the-helm-studio/
+├── app/
+│   ├── page.tsx              # トップ（リダイレクト）
+│   ├── input/
+│   │   └── page.tsx          # モバイル入力画面
+│   ├── dashboard/
+│   │   └── page.tsx          # PCダッシュボード
+│   └── api/
+│       ├── materials/
+│       │   └── route.ts      # 素材CRUD
+│       └── ai/
+│           ├── grill/
+│           │   └── route.ts  # AIグリル
+│           └── blog/
+│               └── route.ts  # ブログ構成生成
+├── components/
+│   ├── mobile/
+│   │   ├── InputForm.tsx     # 入力フォーム
+│   │   └── VoiceButton.tsx   # 音声入力ボタン
+│   └── dashboard/
+│       ├── MaterialList.tsx  # ①素材リスト
+│       ├── AiGrill.tsx       # ②AIグリル
+│       ├── MindMap.tsx       # ③マインドマップ
+│       └── BlogStructure.tsx # ④ブログ構成
+├── lib/
+│   ├── db.ts                 # Neon接続
+│   └── ai.ts                 # Claude API
+└── IMPLEMENTATION_PLAN.md    # この計画書
+```
+
+---
+
+## ✅ 完成の定義
+
+- [ ] スマホから音声で素材を入力できる
+- [ ] PCで素材一覧が見られる
+- [ ] Claudeと対話して深掘りできる
+- [ ] マインドマップが自動生成される
+- [ ] 日英ブログ構成が生成・コピーできる
+- [ ] データがNeonに保存されている（morning-focusと同じDB）
+
+---
+
+*作成日：2026年6月13日*
+*ブランド：Take The Helm〜女たちよ、舵を取れ！〜*
