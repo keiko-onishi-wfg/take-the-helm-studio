@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
+import { Mic } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -14,6 +15,47 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+// Web Speech API の型宣言（TypeScript 標準 lib には未収録）
+interface SpeechRecognitionResultItem {
+  readonly transcript: string;
+  readonly confidence: number;
+}
+interface SpeechRecognitionResult {
+  readonly isFinal: boolean;
+  readonly length: number;
+  item(index: number): SpeechRecognitionResultItem;
+  [index: number]: SpeechRecognitionResultItem;
+}
+interface SpeechRecognitionResultList {
+  readonly length: number;
+  item(index: number): SpeechRecognitionResult;
+  [index: number]: SpeechRecognitionResult;
+}
+interface SpeechRecognitionEvent extends Event {
+  readonly resultIndex: number;
+  readonly results: SpeechRecognitionResultList;
+}
+interface SpeechRecognitionInstance extends EventTarget {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onerror: ((event: Event) => void) | null;
+  onend: (() => void) | null;
+  start(): void;
+  stop(): void;
+}
+declare global {
+  interface Window {
+    SpeechRecognition: new () => SpeechRecognitionInstance;
+    webkitSpeechRecognition: new () => SpeechRecognitionInstance;
+  }
+}
+
+// ───────────────────────────────────────────
+// 定数
+// ───────────────────────────────────────────
+
 const CATEGORIES = ["本", "映画", "旅", "セミナー", "その他"] as const;
 
 const RATING_LABELS: Record<number, string> = {
@@ -26,11 +68,24 @@ const RATING_LABELS: Record<number, string> = {
 
 const today = new Date().toISOString().split("T")[0];
 
+// ───────────────────────────────────────────
+// ユーティリティ
+// ───────────────────────────────────────────
+
 function toJapaneseDate(iso: string) {
   if (!iso) return "";
   const [yyyy, mm, dd] = iso.split("-");
   return `${yyyy}年${Number(mm)}月${Number(dd)}日`;
 }
+
+function isSpeechSupported() {
+  if (typeof window === "undefined") return false;
+  return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+}
+
+// ───────────────────────────────────────────
+// 型
+// ───────────────────────────────────────────
 
 type FormData = {
   category: string;
@@ -42,6 +97,8 @@ type FormData = {
   action: string;
 };
 
+type VoiceField = "summary" | "insight" | "action";
+
 const INITIAL_FORM: FormData = {
   category: "",
   date: today,
@@ -52,23 +109,118 @@ const INITIAL_FORM: FormData = {
   action: "",
 };
 
+// ───────────────────────────────────────────
+// ページコンポーネント
+// ───────────────────────────────────────────
+
 export default function InputPage() {
   const [form, setForm] = useState<FormData>(INITIAL_FORM);
   const [saved, setSaved] = useState(false);
+  const [activeField, setActiveField] = useState<VoiceField | null>(null);
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+  const speechSupported = isSpeechSupported();
 
+  // ── フォーム変更 ──────────────────────────
   function handleChange(
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   }
 
+  // ── 音声入力トグル ────────────────────────
+  const toggleRecording = useCallback(
+    (field: VoiceField) => {
+      if (activeField === field) {
+        // 録音中 → 停止
+        recognitionRef.current?.stop();
+        recognitionRef.current = null;
+        setActiveField(null);
+        return;
+      }
+
+      // 別フィールドが録音中なら先に停止
+      recognitionRef.current?.stop();
+      recognitionRef.current = null;
+
+      const SpeechRecognitionAPI =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
+
+      const recognition = new SpeechRecognitionAPI();
+      recognition.lang = "ja-JP";
+      recognition.continuous = true;
+      recognition.interimResults = false;
+
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
+        let transcript = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (event.results[i].isFinal) {
+            transcript += event.results[i][0].transcript;
+          }
+        }
+        if (transcript) {
+          setForm((prev) => ({
+            ...prev,
+            [field]: prev[field]
+              ? prev[field] + "　" + transcript
+              : transcript,
+          }));
+        }
+      };
+
+      recognition.onerror = () => {
+        recognitionRef.current = null;
+        setActiveField(null);
+      };
+
+      recognition.onend = () => {
+        // continuous=true でも接続が切れた場合のフォールバック
+        setActiveField((cur) => (cur === field ? null : cur));
+        recognitionRef.current = null;
+      };
+
+      recognition.start();
+      recognitionRef.current = recognition;
+      setActiveField(field);
+    },
+    [activeField]
+  );
+
+  // ── 保存 ──────────────────────────────────
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    recognitionRef.current?.stop();
+    setActiveField(null);
     console.log("保存データ:", form);
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   }
 
+  // ── マイクボタン ──────────────────────────
+  function MicButton({ field }: { field: VoiceField }) {
+    if (!speechSupported) return null;
+    const isRecording = activeField === field;
+    return (
+      <button
+        type="button"
+        onClick={() => toggleRecording(field)}
+        aria-label={isRecording ? "録音停止" : "音声入力開始"}
+        className={`
+          absolute top-2 right-2 z-10
+          flex items-center justify-center
+          w-9 h-9 rounded-full border transition-all
+          ${
+            isRecording
+              ? "bg-red-500 border-red-500 text-white animate-pulse shadow-md shadow-red-200"
+              : "bg-white border-stone-200 text-stone-400 hover:border-stone-400 hover:text-stone-600"
+          }
+        `}
+      >
+        <Mic size={16} />
+      </button>
+    );
+  }
+
+  // ────────────────────────────────────────
   return (
     <div className="min-h-screen bg-stone-50 py-6 px-4">
       <div className="max-w-lg mx-auto">
@@ -79,6 +231,13 @@ export default function InputPage() {
           </p>
           <h1 className="text-2xl font-semibold text-stone-800">素材を記録する</h1>
         </div>
+
+        {/* 音声入力非対応の通知 */}
+        {!speechSupported && (
+          <div className="mb-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-700">
+            このブラウザは音声入力に対応していません。iOS の場合は Safari をお使いください。
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* カテゴリー */}
@@ -91,7 +250,9 @@ export default function InputPage() {
             <CardContent className="px-4 pb-4">
               <Select
                 value={form.category}
-                onValueChange={(v) => setForm((prev) => ({ ...prev, category: v ?? "" }))}
+                onValueChange={(v) =>
+                  setForm((prev) => ({ ...prev, category: v ?? "" }))
+                }
                 required
               >
                 <SelectTrigger className="h-12 text-base border-stone-200 bg-white">
@@ -196,13 +357,24 @@ export default function InputPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="px-4 pb-4">
-              <Textarea
-                name="summary"
-                value={form.summary}
-                onChange={handleChange}
-                placeholder="どんな内容だったか簡単にまとめてください"
-                className="min-h-28 text-base border-stone-200 bg-white resize-none"
-              />
+              <div className="relative">
+                <MicButton field="summary" />
+                <Textarea
+                  name="summary"
+                  value={form.summary}
+                  onChange={handleChange}
+                  placeholder="どんな内容だったか簡単にまとめてください"
+                  className={`min-h-28 text-base border-stone-200 bg-white resize-none pr-12 ${
+                    activeField === "summary" ? "border-red-300 ring-1 ring-red-200" : ""
+                  }`}
+                />
+                {activeField === "summary" && (
+                  <p className="mt-1.5 text-xs text-red-500 flex items-center gap-1">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                    録音中…話しかけてください
+                  </p>
+                )}
+              </div>
             </CardContent>
           </Card>
 
@@ -214,13 +386,24 @@ export default function InputPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="px-4 pb-4">
-              <Textarea
-                name="insight"
-                value={form.insight}
-                onChange={handleChange}
-                placeholder="印象に残ったこと、発見したこと"
-                className="min-h-28 text-base border-stone-200 bg-white resize-none"
-              />
+              <div className="relative">
+                <MicButton field="insight" />
+                <Textarea
+                  name="insight"
+                  value={form.insight}
+                  onChange={handleChange}
+                  placeholder="印象に残ったこと、発見したこと"
+                  className={`min-h-28 text-base border-stone-200 bg-white resize-none pr-12 ${
+                    activeField === "insight" ? "border-red-300 ring-1 ring-red-200" : ""
+                  }`}
+                />
+                {activeField === "insight" && (
+                  <p className="mt-1.5 text-xs text-red-500 flex items-center gap-1">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                    録音中…話しかけてください
+                  </p>
+                )}
+              </div>
             </CardContent>
           </Card>
 
@@ -232,13 +415,24 @@ export default function InputPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="px-4 pb-4">
-              <Textarea
-                name="action"
-                value={form.action}
-                onChange={handleChange}
-                placeholder="この体験から実際にやってみること"
-                className="min-h-24 text-base border-stone-200 bg-white resize-none"
-              />
+              <div className="relative">
+                <MicButton field="action" />
+                <Textarea
+                  name="action"
+                  value={form.action}
+                  onChange={handleChange}
+                  placeholder="この体験から実際にやってみること"
+                  className={`min-h-24 text-base border-stone-200 bg-white resize-none pr-12 ${
+                    activeField === "action" ? "border-red-300 ring-1 ring-red-200" : ""
+                  }`}
+                />
+                {activeField === "action" && (
+                  <p className="mt-1.5 text-xs text-red-500 flex items-center gap-1">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                    録音中…話しかけてください
+                  </p>
+                )}
+              </div>
             </CardContent>
           </Card>
 
