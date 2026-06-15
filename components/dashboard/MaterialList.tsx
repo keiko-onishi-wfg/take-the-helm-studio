@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Material, CategoryFilter } from "./types";
 
@@ -46,11 +47,22 @@ export default function MaterialList({
     <aside className="w-80 shrink-0 border-r border-stone-200 flex flex-col bg-white h-screen overflow-hidden">
       {/* ヘッダー */}
       <div className="px-5 pt-5 pb-3 border-b border-stone-100">
-        <p className="text-xs tracking-widest text-stone-400 uppercase mb-0.5">
-          Take The Helm Studio
-        </p>
-        <h1 className="text-lg font-semibold text-stone-800">素材ライブラリ</h1>
-        <p className="text-xs text-stone-400 mt-0.5">{materials.length} 件</p>
+        <div className="flex items-center gap-3">
+          <Image
+            src="/apple-touch-icon.png"
+            alt="Take The Helm Studio"
+            width={60}
+            height={60}
+            className="rounded-xl shrink-0"
+          />
+          <div>
+            <p className="text-xs tracking-widest text-stone-400 uppercase mb-0.5">
+              Take The Helm Studio
+            </p>
+            <h1 className="text-lg font-semibold text-stone-800">素材ライブラリ</h1>
+            <p className="text-xs text-stone-400 mt-0.5">{materials.length} 件</p>
+          </div>
+        </div>
       </div>
 
       {/* カテゴリーフィルター */}

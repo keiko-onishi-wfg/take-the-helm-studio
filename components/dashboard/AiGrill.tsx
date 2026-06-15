@@ -15,11 +15,12 @@ export default function AiGrill({ selected }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [sessionLoading, setSessionLoading] = useState(false);
   const [error, setError] = useState("");
   const [started, setStarted] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // 素材が切り替わったらセッションを復元
+  // 素材が切り替わったら DB からセッションを復元
   useEffect(() => {
     if (!selected) {
       setMessages([]);
@@ -27,22 +28,33 @@ export default function AiGrill({ selected }: Props) {
       setError("");
       return;
     }
-    try {
-      const saved = sessionStorage.getItem(SESSION_KEY(selected.id));
-      if (saved) {
-        const parsed: Message[] = JSON.parse(saved);
-        setMessages(parsed);
-        setStarted(parsed.length > 0);
-      } else {
-        setMessages([]);
-        setStarted(false);
-      }
-    } catch {
-      setMessages([]);
-      setStarted(false);
-    }
+
+    let cancelled = false;
+    setSessionLoading(true);
+    setMessages([]);
+    setStarted(false);
     setError("");
     setInput("");
+
+    fetch(`/api/chat?materialId=${selected.id}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data.success && Array.isArray(data.messages) && data.messages.length > 0) {
+          setMessages(data.messages);
+          setStarted(true);
+          // sessionStorage も更新（MindMap / BlogStructure との互換）
+          try {
+            sessionStorage.setItem(SESSION_KEY(selected.id), JSON.stringify(data.messages));
+          } catch {}
+        }
+      })
+      .catch(() => {/* ネットワークエラーは無視して空状態で続行 */})
+      .finally(() => {
+        if (!cancelled) setSessionLoading(false);
+      });
+
+    return () => { cancelled = true; };
   }, [selected?.id]);
 
   // 新メッセージが追加されたら一番下にスクロール
@@ -50,8 +62,13 @@ export default function AiGrill({ selected }: Props) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  // セッションに保存
+  // DB と sessionStorage に保存（fire-and-forget）
   function saveSession(id: number, msgs: Message[]) {
+    fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ materialId: id, messages: msgs }),
+    }).catch(() => {});
     try {
       sessionStorage.setItem(SESSION_KEY(id), JSON.stringify(msgs));
     } catch {}
@@ -125,6 +142,8 @@ export default function AiGrill({ selected }: Props) {
   // 会話リセット
   function handleReset() {
     if (!selected) return;
+    // DB から削除（fire-and-forget）
+    fetch(`/api/chat?materialId=${selected.id}`, { method: "DELETE" }).catch(() => {});
     sessionStorage.removeItem(SESSION_KEY(selected.id));
     setMessages([]);
     setStarted(false);
@@ -169,7 +188,13 @@ export default function AiGrill({ selected }: Props) {
 
       {/* チャットエリア */}
       <div className="flex-1 overflow-y-auto px-8 py-5 space-y-4">
-        {!started && (
+        {sessionLoading && (
+          <div className="flex justify-center py-8">
+            <span className="text-stone-400 text-sm animate-pulse">会話履歴を読み込み中...</span>
+          </div>
+        )}
+
+        {!sessionLoading && !started && (
           <div className="text-center py-12 text-stone-400">
             <p className="text-4xl mb-3">💬</p>
             <p className="text-sm">「AIと深掘りする」を押して会話を始めましょう</p>
