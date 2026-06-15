@@ -1,69 +1,149 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { Material } from "./types";
 
-type SeoCheck = { label: string; ok: boolean | null };
-type Structure = { title: string; sections: string[] };
-
-function buildDummyStructure(m: Material): { structure: Structure; seo: SeoCheck[] } {
-  const titleBase = m.title || "この体験";
-  const title = `${titleBase}から学んだ3つのこと【${m.category}レビュー】`;
-
-  const structure: Structure = {
-    title,
-    sections: [
-      "はじめに：なぜこれを読んだ／観た／体験したのか",
-      `本編①：${m.summary?.slice(0, 40) ?? "主要なポイント"}`,
-      `本編②：${m.insight?.slice(0, 40) ?? "気づきと考察"}`,
-      `本編③：${m.action?.slice(0, 40) ?? "実際に行動してみること"}`,
-      "まとめ：あなたにもおすすめしたい理由",
-    ],
+// ── 型 ──────────────────────────────────────────
+type BlogData = {
+  title_ja: string;
+  title_en: string;
+  target: string;
+  hook: string;
+  sections: { h2: string; points: string[] }[];
+  conclusion: string;
+  cta: string;
+  seo_check: {
+    target_clear: boolean;
+    hook_impact: boolean;
+    keyword_included: boolean;
+    cta_clear: boolean;
+    title_under_30: boolean;
   };
+};
 
-  const titleLen = title.length;
-  const seo: SeoCheck[] = [
-    {
-      label: "誰の何の問題を解決しているか？",
-      ok: !!(m.summary && m.summary.length > 20),
-    },
-    {
-      label: "つかみはインパクトあるか？",
-      ok: !!(m.insight && m.insight.length > 10),
-    },
-    {
-      label: "キーワードは入っているか？",
-      ok: !!(m.title && m.title.length > 4),
-    },
-    {
-      label: "CTAは明確か？",
-      ok: !!(m.action && m.action.length > 5),
-    },
-    {
-      label: `タイトルは30文字以内か？（現在 ${titleLen} 文字）`,
-      ok: titleLen <= 30,
-    },
-  ];
+const SEO_LABELS: Record<keyof BlogData["seo_check"], string> = {
+  target_clear: "ターゲットが明確",
+  hook_impact: "つかみにインパクトがある",
+  keyword_included: "キーワードが含まれている",
+  cta_clear: "CTAが明確",
+  title_under_30: "タイトルが30文字以内",
+};
 
-  return { structure, seo };
+const GRILL_KEY = (id: number) => `aigrill-${id}`;
+const MINDMAP_KEY = (id: number) => `mindmap-${id}`;
+
+// ── クリップボード用フォーマット ─────────────────
+function formatForClipboard(blog: BlogData): string {
+  return [
+    "【タイトル（日本語）】",
+    blog.title_ja,
+    "【タイトル（英語）】",
+    blog.title_en,
+    "",
+    "【ターゲット】",
+    blog.target,
+    "",
+    "【つかみ】",
+    blog.hook,
+    "",
+    "【記事構成】",
+    ...blog.sections.flatMap((s) => [
+      `## ${s.h2}`,
+      ...s.points.map((p) => `- ${p}`),
+      "",
+    ]),
+    "【まとめ】",
+    blog.conclusion,
+    "",
+    "【CTA】",
+    blog.cta,
+  ].join("\n");
 }
 
+// ── メインコンポーネント ─────────────────────────
 type Props = { selected: Material | null };
 
 export default function BlogStructure({ selected }: Props) {
-  const [result, setResult] = useState<ReturnType<typeof buildDummyStructure> | null>(null);
-  const [generating, setGenerating] = useState(false);
+  const [blog, setBlog] = useState<BlogData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [hasContext, setHasContext] = useState(false);
 
-  function handleGenerate() {
+  // 素材切り替えでリセット＋コンテキストチェック
+  useEffect(() => {
+    setBlog(null);
+    setError("");
+    if (!selected) {
+      setHasContext(false);
+      return;
+    }
+    try {
+      const hasGrill = !!sessionStorage.getItem(GRILL_KEY(selected.id));
+      const hasMindmap = !!sessionStorage.getItem(MINDMAP_KEY(selected.id));
+      setHasContext(hasGrill || hasMindmap);
+    } catch {
+      setHasContext(false);
+    }
+  }, [selected?.id]);
+
+  async function handleGenerate() {
     if (!selected) return;
-    setGenerating(true);
-    setResult(null);
-    setTimeout(() => {
-      setResult(buildDummyStructure(selected));
-      setGenerating(false);
-    }, 900);
+    setLoading(true);
+    setError("");
+
+    let grillMessages: unknown[] = [];
+    let mindmapData: unknown = null;
+    try {
+      const saved = sessionStorage.getItem(GRILL_KEY(selected.id));
+      if (saved) grillMessages = JSON.parse(saved);
+    } catch {}
+    try {
+      const saved = sessionStorage.getItem(MINDMAP_KEY(selected.id));
+      if (saved) mindmapData = JSON.parse(saved);
+    } catch {}
+
+    try {
+      const res = await fetch("/api/ai/blog", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          material: {
+            title: selected.title,
+            category: selected.category,
+            summary: selected.summary,
+            insight: selected.insight,
+            action: selected.action,
+          },
+          grillMessages,
+          mindmapData,
+        }),
+      });
+
+      const data = await res.json();
+      if (!data.success) {
+        setError(data.error ?? "生成に失敗しました");
+        return;
+      }
+      setBlog(data.blog);
+    } catch {
+      setError("ネットワークエラーが発生しました");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCopy() {
+    if (!blog) return;
+    try {
+      await navigator.clipboard.writeText(formatForClipboard(blog));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError("クリップボードへのコピーに失敗しました");
+    }
   }
 
   if (!selected) {
@@ -71,7 +151,9 @@ export default function BlogStructure({ selected }: Props) {
       <div className="flex items-center justify-center h-full text-stone-400">
         <div className="text-center">
           <p className="text-5xl mb-4">📝</p>
-          <p className="text-base font-medium text-stone-500">素材を選択するとブログ構成を生成できます</p>
+          <p className="text-base font-medium text-stone-500">
+            素材を選択するとブログ構成を生成できます
+          </p>
           <p className="text-sm mt-1">← 左のリストから素材を選択してください</p>
         </div>
       </div>
@@ -80,36 +162,106 @@ export default function BlogStructure({ selected }: Props) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-8 pt-6 pb-4 border-b border-stone-100">
-        <p className="text-xs text-stone-400 uppercase tracking-wider mb-1">ブログ構成</p>
-        <h2 className="text-xl font-semibold text-stone-800">
-          {selected.title || "（タイトルなし）"}
-        </h2>
+      {/* ヘッダー */}
+      <div className="px-8 pt-6 pb-4 border-b border-stone-100 flex items-start justify-between">
+        <div>
+          <p className="text-xs text-stone-400 uppercase tracking-wider mb-1">
+            ブログ構成
+          </p>
+          <h2 className="text-xl font-semibold text-stone-800">
+            {selected.title || "（タイトルなし）"}
+          </h2>
+        </div>
+        {blog && (
+          <button
+            onClick={handleCopy}
+            className="text-xs text-stone-400 hover:text-stone-600 mt-1 shrink-0 flex items-center gap-1 transition-colors"
+          >
+            {copied ? "✅ コピー済み" : "📋 コピー"}
+          </button>
+        )}
       </div>
 
-      <div className="flex-1 overflow-y-auto px-8 py-6 space-y-5">
-        {!result && !generating && (
+      {/* コンテンツエリア */}
+      <div className="flex-1 overflow-y-auto px-8 py-6 space-y-4">
+        {/* 空の状態 */}
+        {!blog && !loading && !error && (
           <div className="text-center text-stone-400 py-12">
             <p className="text-5xl mb-4">✍️</p>
             <p className="text-sm">ボタンを押してブログ構成を生成してください</p>
-          </div>
-        )}
-        {generating && (
-          <div className="text-center text-stone-400 py-12">
-            <p className="text-sm animate-pulse">構成を生成中...</p>
+            {hasContext && (
+              <p className="text-xs text-stone-400 mt-2">
+                💬 AIグリル・マインドマップの情報も反映されます
+              </p>
+            )}
           </div>
         )}
 
-        {result && (
+        {/* ローディング */}
+        {loading && (
+          <div className="text-center text-stone-400 py-12">
+            <p className="text-4xl mb-4 animate-pulse">✍️</p>
+            <p className="text-sm">構成を考え中...</p>
+          </div>
+        )}
+
+        {/* エラー */}
+        {error && !loading && (
+          <div className="text-center py-6">
+            <p className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+              ⚠️ {error}
+            </p>
+          </div>
+        )}
+
+        {/* 生成結果 */}
+        {blog && (
           <>
-            {/* 提案タイトル */}
+            {/* タイトル */}
             <Card className="border-stone-200">
               <CardContent className="px-6 py-4">
                 <p className="text-xs font-semibold text-stone-400 uppercase tracking-wider mb-2">
-                  提案タイトル
+                  タイトル
                 </p>
                 <p className="text-stone-800 font-semibold text-base leading-snug">
-                  {result.structure.title}
+                  {blog.title_ja}
+                </p>
+                <p className="text-stone-400 text-sm mt-1 italic">
+                  {blog.title_en}
+                </p>
+                <p
+                  className={`text-xs mt-2 ${
+                    blog.title_ja.length <= 30
+                      ? "text-emerald-500"
+                      : "text-red-400"
+                  }`}
+                >
+                  {blog.title_ja.length}文字{" "}
+                  {blog.title_ja.length <= 30 ? "✅" : "❌（30文字超）"}
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* ターゲット */}
+            <Card className="border-stone-200">
+              <CardContent className="px-6 py-4">
+                <p className="text-xs font-semibold text-stone-400 uppercase tracking-wider mb-2">
+                  ターゲット（誰の何の問題）
+                </p>
+                <p className="text-stone-700 text-sm leading-relaxed">
+                  {blog.target}
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* つかみ */}
+            <Card className="border-stone-200">
+              <CardContent className="px-6 py-4">
+                <p className="text-xs font-semibold text-stone-400 uppercase tracking-wider mb-2">
+                  つかみ・導入
+                </p>
+                <p className="text-stone-700 text-sm leading-relaxed whitespace-pre-wrap">
+                  {blog.hook}
                 </p>
               </CardContent>
             </Card>
@@ -120,16 +272,50 @@ export default function BlogStructure({ selected }: Props) {
                 <p className="text-xs font-semibold text-stone-400 uppercase tracking-wider mb-3">
                   記事構成
                 </p>
-                <ol className="space-y-2">
-                  {result.structure.sections.map((sec, i) => (
-                    <li key={i} className="flex gap-3 text-sm text-stone-700">
-                      <span className="shrink-0 w-5 h-5 rounded-full bg-stone-100 text-stone-500 text-xs flex items-center justify-center font-semibold mt-0.5">
-                        {i + 1}
-                      </span>
-                      {sec}
-                    </li>
+                <div className="space-y-4">
+                  {blog.sections.map((section, i) => (
+                    <div key={i}>
+                      <p className="text-sm font-semibold text-stone-800 mb-1.5">
+                        H2 {i + 1}. {section.h2}
+                      </p>
+                      <ul className="space-y-1 pl-2">
+                        {section.points.map((point, j) => (
+                          <li
+                            key={j}
+                            className="flex gap-2 text-sm text-stone-600"
+                          >
+                            <span className="text-stone-300 shrink-0 mt-0.5">
+                              •
+                            </span>
+                            {point}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   ))}
-                </ol>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* まとめ・CTA */}
+            <Card className="border-stone-200">
+              <CardContent className="px-6 py-4 space-y-4">
+                <div>
+                  <p className="text-xs font-semibold text-stone-400 uppercase tracking-wider mb-2">
+                    まとめ
+                  </p>
+                  <p className="text-stone-700 text-sm leading-relaxed">
+                    {blog.conclusion}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-stone-400 uppercase tracking-wider mb-2">
+                    CTA
+                  </p>
+                  <p className="text-stone-700 text-sm leading-relaxed font-medium">
+                    {blog.cta}
+                  </p>
+                </div>
               </CardContent>
             </Card>
 
@@ -140,31 +326,44 @@ export default function BlogStructure({ selected }: Props) {
                   SEOチェック
                 </p>
                 <ul className="space-y-2.5">
-                  {result.seo.map((item, i) => (
-                    <li key={i} className="flex items-start gap-3 text-sm">
-                      <span className={`shrink-0 mt-0.5 text-base ${item.ok ? "text-emerald-500" : "text-red-400"}`}>
-                        {item.ok ? "✅" : "❌"}
+                  {(
+                    Object.entries(blog.seo_check) as [
+                      keyof BlogData["seo_check"],
+                      boolean
+                    ][]
+                  ).map(([key, ok]) => (
+                    <li key={key} className="flex items-center gap-3 text-sm">
+                      <span
+                        className={`shrink-0 ${
+                          ok ? "text-emerald-500" : "text-red-400"
+                        }`}
+                      >
+                        {ok ? "✅" : "❌"}
                       </span>
-                      <span className={item.ok ? "text-stone-700" : "text-red-600"}>
-                        {item.label}
+                      <span className={ok ? "text-stone-700" : "text-red-600"}>
+                        {SEO_LABELS[key]}
                       </span>
                     </li>
                   ))}
                 </ul>
-                <p className="text-xs text-stone-400 mt-4">※ 現在はダミー判定です</p>
               </CardContent>
             </Card>
           </>
         )}
       </div>
 
+      {/* フッター */}
       <div className="px-8 pb-6 pt-3 border-t border-stone-100">
         <Button
           onClick={handleGenerate}
-          disabled={generating}
+          disabled={loading}
           className="w-full h-12 bg-stone-800 hover:bg-stone-700 text-white rounded-xl"
         >
-          {generating ? "生成中..." : "📝 ブログ構成を生成"}
+          {loading
+            ? "構成を考え中..."
+            : blog
+            ? "🔄 再生成する"
+            : "📝 ブログ構成を生成"}
         </Button>
       </div>
     </div>

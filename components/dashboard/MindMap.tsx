@@ -281,6 +281,9 @@ export default function MindMap({ selected }: Props) {
         return;
       }
       setMindmap(data.mindmap);
+      try {
+        sessionStorage.setItem(`mindmap-${selected.id}`, JSON.stringify(data.mindmap));
+      } catch {}
     } catch {
       setError("ネットワークエラーが発生しました");
     } finally {
