@@ -3,6 +3,8 @@
 
 ---
 
+ANTHROPIC API KEY: （.env.localに移動済み）
+
 ## 🗺️ プロジェクト概要
 
 | 項目 | 内容 |

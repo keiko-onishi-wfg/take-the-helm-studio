@@ -1,123 +1,250 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
 import type { Material } from "./types";
 
 type Message = { role: "user" | "ai"; text: string };
 
-const DUMMY_RESPONSES = [
-  "この素材の核心にある問いは何でしょう？もう少し掘り下げてみましょう。",
-  "著者はなぜこの結論に至ったのか、背景にある前提を探ってみると面白いですよ。",
-  "あなたの「気づき」と「アクション」の間にある、見えていないステップは何ですか？",
-  "この学びを3年後の自分に伝えるとしたら、どう要約しますか？",
-];
+const SESSION_KEY = (id: number) => `aigrill-${id}`;
 
 type Props = { selected: Material | null };
 
 export default function AiGrill({ selected }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [drilling, setDrilling] = useState(false);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [started, setStarted] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
-  function handleDrill() {
+  // 素材が切り替わったらセッションを復元
+  useEffect(() => {
+    if (!selected) {
+      setMessages([]);
+      setStarted(false);
+      setError("");
+      return;
+    }
+    try {
+      const saved = sessionStorage.getItem(SESSION_KEY(selected.id));
+      if (saved) {
+        const parsed: Message[] = JSON.parse(saved);
+        setMessages(parsed);
+        setStarted(parsed.length > 0);
+      } else {
+        setMessages([]);
+        setStarted(false);
+      }
+    } catch {
+      setMessages([]);
+      setStarted(false);
+    }
+    setError("");
+    setInput("");
+  }, [selected?.id]);
+
+  // 新メッセージが追加されたら一番下にスクロール
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
+
+  // セッションに保存
+  function saveSession(id: number, msgs: Message[]) {
+    try {
+      sessionStorage.setItem(SESSION_KEY(id), JSON.stringify(msgs));
+    } catch {}
+  }
+
+  // API 呼び出し
+  async function callApi(currentMessages: Message[]) {
     if (!selected) return;
-    setDrilling(true);
+    setLoading(true);
+    setError("");
 
-    const userMsg: Message = {
-      role: "user",
-      text: `「${selected.title || "この素材"}」についてAIと深掘りします`,
-    };
-    const aiMsg: Message = {
-      role: "ai",
-      text: DUMMY_RESPONSES[messages.length % DUMMY_RESPONSES.length],
-    };
+    try {
+      const res = await fetch("/api/ai/grill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          material: {
+            title: selected.title,
+            category: selected.category,
+            summary: selected.summary,
+            insight: selected.insight,
+            action: selected.action,
+          },
+          messages: currentMessages,
+        }),
+      });
 
-    setTimeout(() => {
-      setMessages((prev) => [...prev, userMsg, aiMsg]);
-      setDrilling(false);
-    }, 800);
+      const data = await res.json();
+      if (!data.success) {
+        setError(data.error ?? "エラーが発生しました");
+        return;
+      }
+
+      const aiMsg: Message = { role: "ai", text: data.reply };
+      const next = [...currentMessages, aiMsg];
+      setMessages(next);
+      saveSession(selected.id, next);
+    } catch {
+      setError("ネットワークエラーが発生しました");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // 最初の深掘りを開始
+  async function handleStart() {
+    if (!selected) return;
+    setStarted(true);
+    await callApi([]);
+  }
+
+  // ユーザーメッセージを送信
+  async function handleSend() {
+    if (!input.trim() || loading || !selected) return;
+    const userMsg: Message = { role: "user", text: input.trim() };
+    const next = [...messages, userMsg];
+    setMessages(next);
+    saveSession(selected.id, next);
+    setInput("");
+    await callApi(next);
+  }
+
+  // Enter キーで送信（Shift+Enter で改行）
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  }
+
+  // 会話リセット
+  function handleReset() {
+    if (!selected) return;
+    sessionStorage.removeItem(SESSION_KEY(selected.id));
+    setMessages([]);
+    setStarted(false);
+    setError("");
+    setInput("");
   }
 
   if (!selected) {
     return (
-      <EmptyState icon="🤖" message="素材を選択するとAIと深掘りできます" />
+      <div className="flex items-center justify-center h-full text-stone-400">
+        <div className="text-center">
+          <p className="text-5xl mb-4">🤖</p>
+          <p className="text-base font-medium text-stone-500">素材を選択するとAIと深掘りできます</p>
+          <p className="text-sm mt-1">← 左のリストから素材を選択してください</p>
+        </div>
+      </div>
     );
   }
 
   return (
     <div className="flex flex-col h-full">
-      {/* 素材概要 */}
-      <div className="px-8 pt-6 pb-4 border-b border-stone-100">
-        <p className="text-xs text-stone-400 uppercase tracking-wider mb-1">AIグリル</p>
-        <h2 className="text-xl font-semibold text-stone-800">
-          {selected.title || "（タイトルなし）"}
-        </h2>
-        {selected.summary && (
-          <p className="text-sm text-stone-500 mt-2 line-clamp-2">{selected.summary}</p>
+      {/* ヘッダー */}
+      <div className="px-8 pt-5 pb-4 border-b border-stone-100 flex items-start justify-between">
+        <div>
+          <p className="text-xs text-stone-400 uppercase tracking-wider mb-1">AIグリル</p>
+          <h2 className="text-xl font-semibold text-stone-800">
+            {selected.title || "（タイトルなし）"}
+          </h2>
+          {selected.summary && (
+            <p className="text-sm text-stone-500 mt-1 line-clamp-2">{selected.summary}</p>
+          )}
+        </div>
+        {started && (
+          <button
+            onClick={handleReset}
+            className="text-xs text-stone-400 hover:text-stone-600 mt-1 shrink-0"
+          >
+            会話をリセット
+          </button>
         )}
       </div>
 
-      {/* チャット */}
-      <div className="flex-1 overflow-y-auto px-8 py-4 space-y-4">
-        {messages.length === 0 && (
+      {/* チャットエリア */}
+      <div className="flex-1 overflow-y-auto px-8 py-5 space-y-4">
+        {!started && (
           <div className="text-center py-12 text-stone-400">
-            <p className="text-3xl mb-3">💬</p>
+            <p className="text-4xl mb-3">💬</p>
             <p className="text-sm">「AIと深掘りする」を押して会話を始めましょう</p>
           </div>
         )}
+
         {messages.map((msg, i) => (
           <div
             key={i}
             className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
           >
             <div
-              className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm ${
+              className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
                 msg.role === "user"
                   ? "bg-stone-800 text-white rounded-br-sm"
                   : "bg-stone-100 text-stone-700 rounded-bl-sm"
               }`}
             >
               {msg.role === "ai" && (
-                <p className="text-xs font-semibold text-stone-400 mb-1">AI</p>
+                <p className="text-xs font-semibold text-stone-400 mb-1.5">🤖 AI</p>
               )}
               {msg.text}
             </div>
           </div>
         ))}
-        {drilling && (
+
+        {loading && (
           <div className="flex justify-start">
             <div className="bg-stone-100 rounded-2xl rounded-bl-sm px-4 py-3">
               <span className="text-stone-400 text-sm animate-pulse">考え中...</span>
             </div>
           </div>
         )}
+
+        {error && (
+          <div className="flex justify-center">
+            <p className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-lg px-4 py-2">
+              ⚠️ {error}
+            </p>
+          </div>
+        )}
+
+        <div ref={bottomRef} />
       </div>
 
-      {/* アクションボタン */}
+      {/* 入力エリア */}
       <div className="px-8 pb-6 pt-3 border-t border-stone-100">
-        <Button
-          onClick={handleDrill}
-          disabled={drilling}
-          className="w-full h-12 bg-stone-800 hover:bg-stone-700 text-white rounded-xl"
-        >
-          {drilling ? "深掘り中..." : "🤖 AIと深掘りする"}
-        </Button>
-        <p className="text-xs text-stone-400 text-center mt-2">
-          ※ 現在はダミーレスポンスです
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function EmptyState({ icon, message }: { icon: string; message: string }) {
-  return (
-    <div className="flex items-center justify-center h-full text-stone-400">
-      <div className="text-center">
-        <p className="text-5xl mb-4">{icon}</p>
-        <p className="text-base font-medium text-stone-500">{message}</p>
-        <p className="text-sm mt-1">← 左のリストから素材を選択してください</p>
+        {!started ? (
+          <Button
+            onClick={handleStart}
+            disabled={loading}
+            className="w-full h-12 bg-stone-800 hover:bg-stone-700 text-white rounded-xl"
+          >
+            {loading ? "接続中..." : "🤖 AIと深掘りする"}
+          </Button>
+        ) : (
+          <div className="flex gap-2 items-end">
+            <Textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="返答を入力… (Enter で送信 / Shift+Enter で改行)"
+              disabled={loading}
+              className="flex-1 min-h-[48px] max-h-32 resize-none text-sm border-stone-200 focus:border-stone-400"
+              rows={1}
+            />
+            <Button
+              onClick={handleSend}
+              disabled={loading || !input.trim()}
+              className="h-12 px-5 bg-stone-800 hover:bg-stone-700 text-white rounded-xl shrink-0"
+            >
+              送信
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );
