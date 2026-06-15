@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Mic } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -78,10 +78,6 @@ function toJapaneseDate(iso: string) {
   return `${yyyy}年${Number(mm)}月${Number(dd)}日`;
 }
 
-function isSpeechSupported() {
-  if (typeof window === "undefined") return false;
-  return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
-}
 
 // ───────────────────────────────────────────
 // 型
@@ -115,10 +111,15 @@ const INITIAL_FORM: FormData = {
 
 export default function InputPage() {
   const [form, setForm] = useState<FormData>(INITIAL_FORM);
-  const [saved, setSaved] = useState(false);
+  const [status, setStatus] = useState<"idle" | "saving" | "success" | "error">("idle");
+  const [errorMessage, setErrorMessage] = useState("");
   const [activeField, setActiveField] = useState<VoiceField | null>(null);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
-  const speechSupported = isSpeechSupported();
+  const [speechSupported, setSpeechSupported] = useState(false);
+
+  useEffect(() => {
+    setSpeechSupported(!!(window.SpeechRecognition || window.webkitSpeechRecognition));
+  }, []);
 
   // ── フォーム変更 ──────────────────────────
   function handleChange(
@@ -186,13 +187,34 @@ export default function InputPage() {
   );
 
   // ── 保存 ──────────────────────────────────
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     recognitionRef.current?.stop();
     setActiveField(null);
-    console.log("保存データ:", form);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+
+    setStatus("saving");
+    setErrorMessage("");
+
+    try {
+      const res = await fetch("/api/materials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        setStatus("success");
+        setForm(INITIAL_FORM);
+        setTimeout(() => setStatus("idle"), 4000);
+      } else {
+        setErrorMessage(data.error ?? "保存に失敗しました");
+        setStatus("error");
+      }
+    } catch {
+      setErrorMessage("ネットワークエラーが発生しました");
+      setStatus("error");
+    }
   }
 
   // ── マイクボタン ──────────────────────────
@@ -440,13 +462,19 @@ export default function InputPage() {
           <div className="pt-2 pb-8">
             <Button
               type="submit"
-              className="w-full h-14 text-base font-medium bg-stone-800 hover:bg-stone-700 text-white rounded-xl transition-colors"
+              disabled={status === "saving"}
+              className="w-full h-14 text-base font-medium bg-stone-800 hover:bg-stone-700 text-white rounded-xl transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              保存する
+              {status === "saving" ? "保存中..." : "保存する"}
             </Button>
-            {saved && (
+            {status === "success" && (
               <p className="mt-3 text-center text-sm text-emerald-600 font-medium">
-                ✓ コンソールに出力しました
+                保存しました！✅
+              </p>
+            )}
+            {status === "error" && (
+              <p className="mt-3 text-center text-sm text-red-500 font-medium">
+                エラーが発生しました：{errorMessage}
               </p>
             )}
           </div>
