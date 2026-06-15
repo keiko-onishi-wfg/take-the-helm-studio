@@ -8,6 +8,7 @@ export async function GET() {
       SELECT id, category, title, rating, created_at, summary, insight, action
       FROM blog_materials
       ORDER BY created_at DESC
+      LIMIT 50
     `;
     return NextResponse.json({ success: true, data: rows });
   } catch (error) {
@@ -15,7 +16,7 @@ export async function GET() {
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : "取得に失敗しました",
+        error: "データの取得に失敗しました",
       },
       { status: 500 }
     );
@@ -23,7 +24,6 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  console.log('ENV CHECK:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
   try {
     const body = await req.json();
     const { category, title, date, rating, summary, insight, action } = body;
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : "保存に失敗しました",
+        error: "データの保存に失敗しました",
       },
       { status: 500 }
     );
