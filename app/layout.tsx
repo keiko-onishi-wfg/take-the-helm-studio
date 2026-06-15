@@ -22,6 +22,9 @@ const notoSerifJP = Noto_Serif_JP({
 export const metadata: Metadata = {
   title: "Take The Helm Studio",
   description: "Take The Helm Studio",
+  icons: {
+    apple: '/apple-touch-icon.png',
+  },
 };
 
 export default function RootLayout({
