@@ -251,7 +251,7 @@ export default function InputPage() {
           <p className="text-xs tracking-widest text-stone-400 uppercase mb-1">
             Take The Helm Studio
           </p>
-          <h1 className="text-2xl font-semibold text-stone-800">素材を記録する</h1>
+          <h1 className="text-2xl font-semibold text-stone-800 font-serif-jp">今日の体験を、言葉に残す</h1>
         </div>
 
         {/* 音声入力非対応の通知 */}
@@ -463,13 +463,13 @@ export default function InputPage() {
             <Button
               type="submit"
               disabled={status === "saving"}
-              className="w-full h-14 text-base font-medium bg-stone-800 hover:bg-stone-700 text-white rounded-xl transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              className="w-full h-14 text-base font-medium text-white rounded-xl transition-colors disabled:opacity-60 disabled:cursor-not-allowed btn-terracotta"
             >
               {status === "saving" ? "保存中..." : "保存する"}
             </Button>
             {status === "success" && (
-              <p className="mt-3 text-center text-sm text-emerald-600 font-medium">
-                保存しました！✅
+              <p className="mt-3 text-center text-sm text-emerald-700 font-medium">
+                記録しました。あなたの気づきが、ここに積み上がっています。✨
               </p>
             )}
             {status === "error" && (

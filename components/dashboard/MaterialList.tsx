@@ -61,7 +61,7 @@ export default function MaterialList({
               <TabsTrigger
                 key={cat}
                 value={cat}
-                className="text-xs px-2.5 py-1 rounded-full border border-stone-200 bg-white data-[state=active]:bg-stone-800 data-[state=active]:text-white data-[state=active]:border-stone-800 transition-colors"
+                className="text-xs px-2.5 py-1 rounded-full border border-stone-200 bg-white tab-filter-brand transition-colors"
               >
                 {cat}
               </TabsTrigger>
@@ -89,7 +89,7 @@ export default function MaterialList({
               onClick={() => onSelect(m)}
               className={`w-full text-left rounded-lg border px-3.5 py-2.5 transition-all ${
                 isSelected
-                  ? "border-stone-800 bg-stone-800 text-white shadow-sm"
+                  ? "border-[#C4704F] bg-[#C4704F] text-white shadow-sm"
                   : "border-stone-200 bg-white hover:border-stone-300 hover:shadow-sm"
               }`}
             >

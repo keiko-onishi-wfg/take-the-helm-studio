@@ -46,14 +46,14 @@ export default function DashboardPage() {
           <div className="border-b border-stone-200 bg-white px-6 pt-4 pb-0 shrink-0">
             <TabsList className="h-auto bg-transparent p-0 gap-1">
               {[
-                { value: "aigrill", label: "🤖 AIグリル" },
-                { value: "mindmap", label: "🗺️ マインドマップ" },
-                { value: "blog", label: "📝 ブログ構成" },
+                { value: "aigrill", label: "✦ 深掘り" },
+                { value: "mindmap", label: "✦ つながりを見る" },
+                { value: "blog", label: "✦ 記事を組み立てる" },
               ].map((tab) => (
                 <TabsTrigger
                   key={tab.value}
                   value={tab.value}
-                  className="text-sm px-5 py-2.5 rounded-none border-b-2 border-transparent data-[state=active]:border-stone-800 data-[state=active]:text-stone-800 data-[state=inactive]:text-stone-400 bg-transparent shadow-none transition-colors"
+                  className="text-sm px-5 py-2.5 rounded-none border-b-2 border-transparent data-[state=inactive]:text-stone-400 bg-transparent shadow-none transition-colors tab-brand"
                 >
                   {tab.label}
                 </TabsTrigger>
