@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { saveMindMap, loadMindMap, initMindMapTable } from "@/lib/db";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -60,6 +61,22 @@ function validateMindMap(data: unknown): data is MindMapData {
   );
 }
 
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const materialId = Number(searchParams.get("materialId"));
+  if (!materialId) {
+    return NextResponse.json({ success: false, error: "materialId が必要です" }, { status: 400 });
+  }
+  try {
+    await initMindMapTable();
+    const mindmap = await loadMindMap(materialId);
+    return NextResponse.json({ success: true, mindmap });
+  } catch (error) {
+    console.error("[GET /api/ai/mindmap]", error);
+    return NextResponse.json({ success: false, error: "読み込みに失敗しました" }, { status: 500 });
+  }
+}
+
 export async function POST(req: NextRequest) {
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json(
@@ -85,7 +102,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { material, grillMessages } = body as Record<string, unknown>;
+  const { material, grillMessages, materialId } = body as Record<string, unknown>;
 
   if (!material || typeof material !== "object") {
     return NextResponse.json(
@@ -99,10 +116,7 @@ export async function POST(req: NextRequest) {
     : [];
 
   try {
-    const context = buildContext(
-      material as Record<string, unknown>,
-      messages
-    );
+    const context = buildContext(material as Record<string, unknown>, messages);
 
     const response = await client.messages.create({
       model: "claude-sonnet-4-5",
@@ -116,7 +130,6 @@ export async function POST(req: NextRequest) {
 
     const jsonMatch = rawText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      console.error("[mindmap] No JSON in response:", rawText);
       return NextResponse.json(
         { success: false, error: "マインドマップの生成に失敗しました" },
         { status: 500 }
@@ -127,7 +140,6 @@ export async function POST(req: NextRequest) {
     try {
       mindmap = JSON.parse(jsonMatch[0]);
     } catch {
-      console.error("[mindmap] JSON parse error:", jsonMatch[0]);
       return NextResponse.json(
         { success: false, error: "マインドマップの解析に失敗しました" },
         { status: 500 }
@@ -139,6 +151,12 @@ export async function POST(req: NextRequest) {
         { success: false, error: "マインドマップの形式が正しくありません" },
         { status: 500 }
       );
+    }
+
+    // DBに保存
+    if (typeof materialId === "number") {
+      await initMindMapTable();
+      await saveMindMap(materialId, mindmap);
     }
 
     return NextResponse.json({ success: true, mindmap });
