@@ -72,7 +72,6 @@ export default function MaterialEditor({ material, onSave, onDelete, onCancel }:
         insight,
         action,
         created_at: new Date(date).toISOString(),
-        updated_at: new Date().toISOString(),
       });
     } catch {
       setError("ネットワークエラーが発生しました");
