@@ -3,9 +3,10 @@ import { getDb } from "@/lib/db";
 
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
-  const id = Number(params.id);
+  const { id: rawId } = await context.params;
+  const id = Number(rawId);
   if (!id) return NextResponse.json({ success: false, error: "IDが不正です" }, { status: 400 });
 
   let body: unknown;
@@ -38,9 +39,10 @@ export async function PUT(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
-  const id = Number(params.id);
+  const { id: rawId } = await context.params;
+  const id = Number(rawId);
   if (!id) return NextResponse.json({ success: false, error: "IDが不正です" }, { status: 400 });
 
   try {
