@@ -1,66 +1,54 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 
-export async function GET() {
+export async function PUT(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  const id = Number(params.id);
+  if (!id) return NextResponse.json({ success: false, error: "IDが不正です" }, { status: 400 });
+
+  let body: unknown;
+  try { body = await request.json(); } catch {
+    return NextResponse.json({ success: false, error: "リクエストの形式が正しくありません" }, { status: 400 });
+  }
+
+  const { category, title, rating, summary, insight, action, created_at } = body as Record<string, unknown>;
+
   try {
     const sql = getDb();
-    const rows = await sql`
-      SELECT id, category, title, rating, created_at, summary, insight, action
-      FROM blog_materials
-      ORDER BY created_at DESC
-      LIMIT 50
+    await sql`
+      UPDATE blog_materials SET
+        category   = ${category as string},
+        title      = ${title as string},
+        rating     = ${rating as number},
+        summary    = ${summary as string},
+        insight    = ${insight as string},
+        action     = ${action as string},
+        created_at = ${created_at as string},
+        updated_at = NOW()
+      WHERE id = ${id}
     `;
-    return NextResponse.json({ success: true, data: rows });
+    return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("[GET /api/materials]", error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: "データの取得に失敗しました",
-      },
-      { status: 500 }
-    );
+    console.error("[PUT /api/materials/[id]]", error);
+    return NextResponse.json({ success: false, error: "更新に失敗しました" }, { status: 500 });
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function DELETE(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  const id = Number(params.id);
+  if (!id) return NextResponse.json({ success: false, error: "IDが不正です" }, { status: 400 });
+
   try {
-    const body = await req.json();
-    const { category, title, date, rating, summary, insight, action } = body;
-
-    if (!category) {
-      return NextResponse.json(
-        { success: false, error: "カテゴリーは必須です" },
-        { status: 400 }
-      );
-    }
-
     const sql = getDb();
-    const result = await sql`
-      INSERT INTO blog_materials
-        (category, title, created_at, rating, summary, insight, action, updated_at)
-      VALUES (
-        ${category},
-        ${title ?? null},
-        ${date ? new Date(date) : new Date()},
-        ${rating > 0 ? rating : null},
-        ${summary || null},
-        ${insight || null},
-        ${action || null},
-        NOW()
-      )
-      RETURNING id
-    `;
-
-    return NextResponse.json({ success: true, id: result[0].id });
+    await sql`DELETE FROM blog_materials WHERE id = ${id}`;
+    return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("[POST /api/materials]", error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: "データの保存に失敗しました",
-      },
-      { status: 500 }
-    );
+    console.error("[DELETE /api/materials/[id]]", error);
+    return NextResponse.json({ success: false, error: "削除に失敗しました" }, { status: 500 });
   }
 }
