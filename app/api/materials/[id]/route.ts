@@ -1,15 +1,15 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 
 export async function PUT(
-  req: NextRequest,
+  request: Request,
   { params }: { params: { id: string } }
 ) {
   const id = Number(params.id);
   if (!id) return NextResponse.json({ success: false, error: "IDが不正です" }, { status: 400 });
 
   let body: unknown;
-  try { body = await req.json(); } catch {
+  try { body = await request.json(); } catch {
     return NextResponse.json({ success: false, error: "リクエストの形式が正しくありません" }, { status: 400 });
   }
 
@@ -37,7 +37,7 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _req: NextRequest,
+  request: Request,
   { params }: { params: { id: string } }
 ) {
   const id = Number(params.id);
